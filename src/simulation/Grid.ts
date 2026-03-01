@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { createNoise3D } from 'simplex-noise';
 
 export class Grid {
   rows: number;
@@ -9,7 +10,13 @@ export class Grid {
   // Transform properties
   position: THREE.Vector3;
   rotation: THREE.Euler; // We'll control x (pitch) and y (yaw)
-  
+
+  // Wave / Tidal properties
+  waveAmplitude: number = 8.0;
+  waveFrequency: number = 0.03;
+  waveSpeed: number = 0.5;
+  private noise3D = createNoise3D();
+
   // Cache active positions for performance so we don't calculate them per boid per frame
   activePositions: THREE.Vector3[] = [];
 
@@ -40,8 +47,7 @@ export class Grid {
     this.updateActivePositions();
   }
 
-  // Called whenever the grid changes or rotates
-  updateActivePositions() {
+  updateActivePositions(time: number = 0) {
     this.activePositions = [];
 
     const matrix = new THREE.Matrix4();
@@ -58,11 +64,16 @@ export class Grid {
         if (this.cells[r][c]) {
           const localX = c * this.cellSize + offsetX;
           const localY = r * this.cellSize + offsetY;
-          
-          // The grid is on the XY plane locally.
-          const localPos = new THREE.Vector3(localX, localY, 0);
-          
-          // Transform to world position based on grid rotation/position
+
+          const noiseZ = this.noise3D(
+            localX * this.waveFrequency,
+            localY * this.waveFrequency,
+            time * this.waveSpeed
+          );
+          const localZ = noiseZ * this.waveAmplitude;
+
+          const localPos = new THREE.Vector3(localX, localY, localZ);
+
           localPos.applyMatrix4(matrix);
 
           this.activePositions.push(localPos);

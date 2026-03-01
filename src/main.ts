@@ -93,11 +93,11 @@ const planeMaterial = new THREE.MeshBasicMaterial({ visible: false, side: THREE.
 const raycastPlane = new THREE.Mesh(planeGeometry, planeMaterial);
 scene.add(raycastPlane);
 
-function syncGridTransforms() {
+function syncGridTransforms(time: number = 0) {
   raycastPlane.position.copy(interactiveGrid.position);
   raycastPlane.rotation.copy(interactiveGrid.rotation);
   
-  interactiveGrid.updateActivePositions();
+  interactiveGrid.updateActivePositions(time);
   
   // Update InstancedMesh
   gridInstancedMesh.count = interactiveGrid.activePositions.length;
@@ -175,13 +175,21 @@ containFolder.add(config, 'containmentWeight', 0.0, 5.0, 0.1).name('Boundary Pul
 const gridFolder = gui.addFolder('Interactive Grid');
 gridFolder.add(interactiveGrid.rotation, 'x', -Math.PI / 2, Math.PI / 2, 0.01)
   .name('Grid Pitch')
-  .onChange(syncGridTransforms);
+  .onChange(() => syncGridTransforms(clock.getElapsedTime()));
 gridFolder.add(interactiveGrid.rotation, 'y', -Math.PI, Math.PI, 0.01)
   .name('Grid Yaw')
-  .onChange(syncGridTransforms);
+  .onChange(() => syncGridTransforms(clock.getElapsedTime()));
 gridFolder.add(config, 'obstacleAvoidanceWeight', 0.0, 15.0, 0.5).name('Avoidance Weight');
 gridFolder.add(config, 'obstacleLookAhead', 5.0, 40.0, 1.0).name('Look Ahead Dist');
-gridFolder.add({ clear: () => { interactiveGrid.clear(); syncGridTransforms(); } }, 'clear').name('Clear Grid');
+gridFolder.add({ clear: () => { interactiveGrid.clear(); syncGridTransforms(clock.getElapsedTime()); } }, 'clear').name('Clear Grid');
+
+const waveFolder = gui.addFolder('Grid Tidal Waves');
+waveFolder.add(interactiveGrid, 'waveAmplitude', 0.0, 20.0, 0.5).name('Wave Height');
+waveFolder.add(interactiveGrid, 'waveFrequency', 0.01, 0.2, 0.01).name('Wave Frequency');
+waveFolder.add(interactiveGrid, 'waveSpeed', 0.0, 2.0, 0.1).name('Wave Speed');
+
+const appState = { cameraSpin: false };
+gui.add(appState, 'cameraSpin').name('Spin Camera');
 
 // --- Animation Loop ---
 const clock = new THREE.Clock();
@@ -190,14 +198,22 @@ function animate() {
   requestAnimationFrame(animate);
 
   const delta = clock.getDelta();
+  const time = clock.getElapsedTime();
   
-  // Update boids and instanced mesh matrices
+  // Update the grid positions every frame so the waves undulate
+  syncGridTransforms(time);
+  
+  // Update boids and instanced mesh matrices, passing the moving obstacles
   flock.update(delta, instancedMesh, interactiveGrid.activePositions);
   
-  // Slowly rotate the camera around the flock for cinematic effect
-  const time = clock.getElapsedTime();
-  camera.position.x = Math.sin(time * 0.1) * 120;
-  camera.position.z = Math.cos(time * 0.1) * 120;
+  // Camera logic
+  if (appState.cameraSpin) {
+    camera.position.x = Math.sin(time * 0.1) * 120;
+    camera.position.z = Math.cos(time * 0.1) * 120;
+  } else {
+    camera.position.x = 0;
+    camera.position.z = 120;
+  }
   camera.lookAt(0, 0, 0);
 
   renderer.render(scene, camera);
