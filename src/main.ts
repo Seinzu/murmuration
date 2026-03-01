@@ -4,6 +4,7 @@ import GUI from 'lil-gui';
 import { Flock } from './simulation/Flock';
 import { Grid } from './simulation/Grid';
 import type { BoidConfig } from './simulation/Boid';
+import { audioEngine } from './audio/Engine';
 
 // --- Configuration ---
 const config: BoidConfig & { count: number } = {
@@ -49,14 +50,14 @@ scene.add(directionalLight);
 
 // --- Instanced Mesh (The Birds) ---
 // Use a low-poly cone for the starling shape
-const geometry = new THREE.ConeGeometry(0.5, 2, 4); 
+const geometry = new THREE.ConeGeometry(0.5, 2, 4);
 // Rotate geometry so default orientation is forward along Z-axis (easier logic)
-geometry.rotateX(Math.PI / 2); 
+geometry.rotateX(Math.PI / 2);
 
-const material = new THREE.MeshStandardMaterial({ 
-  color: '#cbd5e1', 
+const material = new THREE.MeshStandardMaterial({
+  color: '#cbd5e1',
   roughness: 0.7,
-  metalness: 0.1 
+  metalness: 0.1
 });
 
 const MAX_BIRDS = 250;
@@ -76,8 +77,8 @@ const interactiveGrid = new Grid(gridRows, gridCols, cellSize);
 
 // The visible wireframe cubes
 const cubeGeometry = new THREE.BoxGeometry(cellSize, cellSize, cellSize);
-const cubeMaterial = new THREE.MeshBasicMaterial({ 
-  color: 0x00ff00, 
+const cubeMaterial = new THREE.MeshBasicMaterial({
+  color: 0x00ff00,
   wireframe: true,
   transparent: true,
   opacity: 0.5
@@ -96,10 +97,9 @@ scene.add(raycastPlane);
 function syncGridTransforms(time: number = 0) {
   raycastPlane.position.copy(interactiveGrid.position);
   raycastPlane.rotation.copy(interactiveGrid.rotation);
-  
+
   interactiveGrid.updateActivePositions(time);
-  
-  // Update InstancedMesh
+
   gridInstancedMesh.count = interactiveGrid.activePositions.length;
   const dummy = new THREE.Object3D();
   interactiveGrid.activePositions.forEach((pos, i) => {
@@ -126,15 +126,13 @@ window.addEventListener('click', (event) => {
 
   if (intersects.length > 0) {
     const hitPoint = intersects[0].point;
-    
-    // Convert world hit point back to local plane coordinates to find row/col
+
     const localHit = hitPoint.clone();
     raycastPlane.worldToLocal(localHit);
 
     const width = gridCols * cellSize;
     const height = gridRows * cellSize;
-    
-    // Shift coordinates so (0,0) is bottom left of the grid
+
     const localX = localHit.x + width / 2;
     const localY = localHit.y + height / 2;
 
@@ -193,19 +191,20 @@ gui.add(appState, 'cameraSpin').name('Spin Camera');
 
 // --- Animation Loop ---
 const clock = new THREE.Clock();
+let simulationStarted = false;
 
 function animate() {
   requestAnimationFrame(animate);
 
+  if (!simulationStarted) return;
+
   const delta = clock.getDelta();
   const time = clock.getElapsedTime();
-  
-  // Update the grid positions every frame so the waves undulate
+
   syncGridTransforms(time);
-  
-  // Update boids and instanced mesh matrices, passing the moving obstacles
+
   flock.update(delta, instancedMesh, interactiveGrid.activePositions);
-  
+
   // Camera logic
   if (appState.cameraSpin) {
     camera.position.x = Math.sin(time * 0.1) * 120;
@@ -221,7 +220,23 @@ function animate() {
 
 animate();
 
-// --- Window Resize Handling ---
+const overlay = document.getElementById('start-overlay');
+const startBtn = document.getElementById('start-btn');
+
+startBtn?.addEventListener('click', async () => {
+  await audioEngine.initialize();
+
+  if (overlay) {
+    overlay.style.opacity = '0';
+    setTimeout(() => {
+      overlay.style.display = 'none';
+    }, 500);
+  }
+
+  simulationStarted = true;
+  clock.start(); // Reset clock so animations don't jump
+});
+
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
