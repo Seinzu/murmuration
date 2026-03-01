@@ -1,0 +1,17 @@
+body {
+  margin: 0;
+  overflow: hidden;
+  background-color: #1a1a1a;
+}
+canvas {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+}
+#app {
+  width: 100vw;
+  height: 100vh;
+  position: absolute;
+  top: 0;
+  left: 0;
+}
