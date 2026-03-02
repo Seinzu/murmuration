@@ -73,9 +73,9 @@ const spatialAnalyzer = new SpatialAnalyzer();
 
 instancedMesh.count = config.count;
 
-// --- Interactive Grid Setup ---
-const gridRows = 10;
-const gridCols = 10;
+
+const gridRows = 8;
+const gridCols = 16;
 const cellSize = 10;
 const interactiveGrid = new Grid(gridRows, gridCols, cellSize);
 
@@ -85,6 +85,7 @@ socketClient.onToggleCommand((row, col) => {
   interactiveGrid.toggleCell(row, col);
   syncGridTransforms();
   // Note: We don't send the state back here to prevent echo loops
+  socketClient.sendGridState(interactiveGrid.cells);
 });
 
 const cubeGeometry = new THREE.BoxGeometry(cellSize, cellSize, cellSize);
@@ -152,8 +153,7 @@ window.addEventListener('click', (event) => {
 
     interactiveGrid.toggleCell(row, col);
     syncGridTransforms();
-    
-    // Broadcast state to server
+
     socketClient.sendGridState(interactiveGrid.cells);
   }
 });
@@ -192,9 +192,9 @@ gridFolder.add(interactiveGrid.rotation, 'y', -Math.PI, Math.PI, 0.01)
   .onChange(() => syncGridTransforms(clock.getElapsedTime()));
 gridFolder.add(config, 'obstacleAvoidanceWeight', 0.0, 15.0, 0.5).name('Avoidance Weight');
 gridFolder.add(config, 'obstacleLookAhead', 5.0, 40.0, 1.0).name('Look Ahead Dist');
-gridFolder.add({ clear: () => { 
-  interactiveGrid.clear(); 
-  syncGridTransforms(clock.getElapsedTime()); 
+gridFolder.add({ clear: () => {
+  interactiveGrid.clear();
+  syncGridTransforms(clock.getElapsedTime());
   socketClient.sendGridState(interactiveGrid.cells);
 } }, 'clear').name('Clear Grid');
 

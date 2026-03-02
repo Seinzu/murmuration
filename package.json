@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "lil-gui": "^0.21.0",
+    "monome-grid": "^1.0.2",
     "simplex-noise": "^4.0.3",
     "three": "^0.183.1",
     "tone": "^15.1.22",

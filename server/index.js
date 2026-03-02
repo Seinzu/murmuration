@@ -1,4 +1,5 @@
 import { WebSocketServer, WebSocket } from 'ws';
+import Grid from './grid.js'
 
 const port = 8080;
 const wss = new WebSocketServer({ port });
@@ -27,16 +28,7 @@ wss.on('connection', (ws) => {
         console.log(`[Heartbeat] received at ${new Date(data.timestamp).toISOString()}`);
       } else if (data.type === 'grid_state') {
         console.log(`[Grid State Updated] Received state map from client.`);
-        // Note: data.data contains the boolean[][] array
-        
-        // Example: Count active cells
-        let activeCount = 0;
-        data.data.forEach(row => {
-          row.forEach(cell => {
-            if (cell) activeCount++;
-          });
-        });
-        console.log(`Currently ${activeCount} cells are active.`);
+        grid?.update(data.data);
       }
     } catch (e) {
       console.error('Failed to parse message:', message.toString());
@@ -48,28 +40,3 @@ wss.on('connection', (ws) => {
     clients.delete(ws);
   });
 });
-
-// --- Server-to-Client Command Simulation ---
-// To prove the server can control the frontend, we will pick a random 
-// cell to toggle every 10 seconds.
-setInterval(() => {
-  if (clients.size === 0) return;
-
-  // Assuming a 10x10 grid as defined in the frontend
-  const randomRow = Math.floor(Math.random() * 10);
-  const randomCol = Math.floor(Math.random() * 10);
-
-  const payload = JSON.stringify({
-    type: 'toggle',
-    row: randomRow,
-    col: randomCol
-  });
-
-  console.log(`[Server Event] Sending toggle command for cell (${randomRow}, ${randomCol})`);
-
-  clients.forEach((client) => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(payload);
-    }
-  });
-}, 10000); // Fire every 10 seconds
