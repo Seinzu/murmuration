@@ -3,8 +3,11 @@ import * as THREE from 'three';
 import GUI from 'lil-gui';
 import { Flock } from './simulation/Flock';
 import { Grid } from './simulation/Grid';
+import { SpatialAnalyzer } from './simulation/SpatialAnalyzer';
 import type { BoidConfig } from './simulation/Boid';
 import { audioEngine } from './audio/Engine';
+import { Scales, type ScaleName } from './audio/Scales';
+import { SocketClient } from './network/SocketClient';
 
 // --- Configuration ---
 const config: BoidConfig & { count: number } = {
@@ -66,6 +69,7 @@ instancedMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 scene.add(instancedMesh);
 
 const flock = new Flock(config.count, config);
+const spatialAnalyzer = new SpatialAnalyzer();
 
 instancedMesh.count = config.count;
 
@@ -75,7 +79,14 @@ const gridCols = 10;
 const cellSize = 10;
 const interactiveGrid = new Grid(gridRows, gridCols, cellSize);
 
-// The visible wireframe cubes
+const socketClient = new SocketClient('ws://localhost:8080');
+
+socketClient.onToggleCommand((row, col) => {
+  interactiveGrid.toggleCell(row, col);
+  syncGridTransforms();
+  // Note: We don't send the state back here to prevent echo loops
+});
+
 const cubeGeometry = new THREE.BoxGeometry(cellSize, cellSize, cellSize);
 const cubeMaterial = new THREE.MeshBasicMaterial({
   color: 0x00ff00,
@@ -139,9 +150,11 @@ window.addEventListener('click', (event) => {
     const col = Math.floor(localX / cellSize);
     const row = Math.floor(localY / cellSize);
 
-    // Toggle cell
     interactiveGrid.toggleCell(row, col);
     syncGridTransforms();
+    
+    // Broadcast state to server
+    socketClient.sendGridState(interactiveGrid.cells);
   }
 });
 
@@ -179,7 +192,11 @@ gridFolder.add(interactiveGrid.rotation, 'y', -Math.PI, Math.PI, 0.01)
   .onChange(() => syncGridTransforms(clock.getElapsedTime()));
 gridFolder.add(config, 'obstacleAvoidanceWeight', 0.0, 15.0, 0.5).name('Avoidance Weight');
 gridFolder.add(config, 'obstacleLookAhead', 5.0, 40.0, 1.0).name('Look Ahead Dist');
-gridFolder.add({ clear: () => { interactiveGrid.clear(); syncGridTransforms(clock.getElapsedTime()); } }, 'clear').name('Clear Grid');
+gridFolder.add({ clear: () => { 
+  interactiveGrid.clear(); 
+  syncGridTransforms(clock.getElapsedTime()); 
+  socketClient.sendGridState(interactiveGrid.cells);
+} }, 'clear').name('Clear Grid');
 
 const waveFolder = gui.addFolder('Grid Tidal Waves');
 waveFolder.add(interactiveGrid, 'waveAmplitude', 0.0, 20.0, 0.5).name('Wave Height');
@@ -189,7 +206,18 @@ waveFolder.add(interactiveGrid, 'waveSpeed', 0.0, 2.0, 0.1).name('Wave Speed');
 const appState = { cameraSpin: false };
 gui.add(appState, 'cameraSpin').name('Spin Camera');
 
-// --- Animation Loop ---
+const audioFolder = gui.addFolder('Audio Synthesizer');
+audioFolder.add(audioEngine, 'mode', ['drone', 'trigger']).name('Audio Mode');
+const scaleNames = Object.keys(Scales) as ScaleName[];
+audioFolder.add(audioEngine, 'currentScaleName', scaleNames).name('Musical Scale');
+audioFolder.add(audioEngine, 'masterVolume', -36, 0, 1).name('Volume (dB)').onChange((v: number) => audioEngine.setVolume(v));
+audioFolder.add(audioEngine, 'reverbAmount', 0, 1, 0.05).name('Reverb').onChange((v: number) => audioEngine.setReverb(v));
+audioFolder.add(audioEngine, 'droneRadius', 10, 150, 5).name('Drone Proximity');
+audioFolder.add(audioEngine, 'triggerDensityThreshold', 1, 10, 1).name('Trigger Density');
+audioFolder.add(audioEngine, 'attack', 0, 2, 0.05).name('Attack Time').onChange((v: number) => audioEngine.setEnvelope({ attack: v }));
+audioFolder.add(audioEngine, 'release', 0, 2, 0.05).name('Release Time').onChange((v: number) => audioEngine.setEnvelope({ release: v }));
+audioFolder.add(spatialAnalyzer, 'densityRadius', 5, 50, 1).name('Density Search Radius');
+
 const clock = new THREE.Clock();
 let simulationStarted = false;
 
@@ -205,7 +233,9 @@ function animate() {
 
   flock.update(delta, instancedMesh, interactiveGrid.activePositions);
 
-  // Camera logic
+  const spatialData = spatialAnalyzer.analyze(flock, interactiveGrid);
+  audioEngine.update(spatialData);
+
   if (appState.cameraSpin) {
     camera.position.x = Math.sin(time * 0.1) * 120;
     camera.position.z = Math.cos(time * 0.1) * 120;

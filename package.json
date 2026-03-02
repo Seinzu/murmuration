@@ -6,10 +6,12 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "server": "node server/index.js"
   },
   "devDependencies": {
     "@types/three": "^0.183.1",
+    "@types/ws": "^8.18.1",
     "typescript": "~5.9.3",
     "vite": "^7.3.1"
   },
@@ -17,6 +19,7 @@
     "lil-gui": "^0.21.0",
     "simplex-noise": "^4.0.3",
     "three": "^0.183.1",
-    "tone": "^15.1.22"
+    "tone": "^15.1.22",
+    "ws": "^8.19.0"
   }
 }
