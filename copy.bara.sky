@@ -1,0 +1,22 @@
+core.workflow(
+    name = "norns",
+    origin = git.github_origin(
+        url = "https://github.com/Seinzu/murmuration.git",
+        ref = "main",
+    ),
+    destination = git.destination(
+        url = "https://github.com/Seinzu/murmuration-norns.git",
+        fetch = "main",
+        push = "main",
+    ),
+    origin_files = glob([
+        "norns/**",
+    ]),
+    destination_files = glob([
+        "**",
+    ]),
+    authoring = authoring.pass_thru("Murmuration Sync <actions@github.com>"),
+    transformations = [
+        core.move("norns", ""),
+    ],
+)
