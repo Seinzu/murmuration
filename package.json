@@ -7,20 +7,17 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "server": "node server/index.js"
+    "synthdefs:compile": "sclang supercollider/compile-synthdefs.scd",
+    "tauri": "tauri"
   },
   "devDependencies": {
     "@types/three": "^0.183.1",
-    "@types/ws": "^8.18.1",
     "typescript": "~5.9.3",
     "vite": "^7.3.1"
   },
   "dependencies": {
     "lil-gui": "^0.21.0",
-    "monome-grid": "^1.0.2",
     "simplex-noise": "^4.0.3",
-    "three": "^0.183.1",
-    "tone": "^15.1.22",
-    "ws": "^8.19.0"
+    "three": "^0.183.1"
   }
 }
