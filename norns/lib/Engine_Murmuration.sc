@@ -8,7 +8,7 @@ Engine_Murmuration : CroneEngine {
   var <srcGroup, <fxGroup;
   var <fxSynth;
   var <droneSynths;
-  var <filterMul, <droneAttack, <droneRelease;
+  var <filterMul, <droneAttack, <droneRelease, <outputLevel;
 
   *new { arg context, doneCallback;
     ^super.new(context, doneCallback);
@@ -29,7 +29,7 @@ Engine_Murmuration : CroneEngine {
       var modSig     = SinOsc.ar(modFreq) * ((modIndex + thunderMod) * freq);
       var carrier    = SinOsc.ar(freq + modSig);
       var env        = EnvGen.kr(
-        Env.asr(attackTime: attackTime, sustainLevel: 1.4, releaseTime: releaseTime),
+        Env.asr(attackTime: attackTime, sustainLevel: 1.1, releaseTime: releaseTime),
         gate,
         doneAction: Done.freeSelf
       );
@@ -71,7 +71,7 @@ Engine_Murmuration : CroneEngine {
       sig = sig + (diffused * 0.45);
       sig = LPF.ar(sig, 1800);
       sig = LPF.ar(sig, 900 + EnvGen.kr(Env.perc(0.001, 3.0), doneAction: Done.none) * 800);
-      stereo = sig.dup * 0.3;
+      stereo = sig.dup * 0.2;
       amp = Amplitude.kr(stereo[0], attackTime: 0.001, releaseTime: 1.0);
       Out.kr(thunderBus, amp * modScale);
       DetectSilence.ar(stereo[0], amp: 0.0005, time: 1.0, doneAction: Done.freeSelf);
@@ -80,14 +80,14 @@ Engine_Murmuration : CroneEngine {
 
     SynthDef(\murmurFX, {
       | in = 0, out = 0, filterFreq = 1000, rq = 0.7, reverbMix = 0.6, reverbRoom = 0.8,
-        thunderBus = 0, thunderFilterAmt = 3000, thunderReverbAmt = 0.3 |
+        thunderBus = 0, thunderFilterAmt = 3000, thunderReverbAmt = 0.3, outputLevel = 0.6 |
       var sig         = In.ar(in, 2);
       var thunderMod  = In.kr(thunderBus);
       var modFreq     = (filterFreq + (thunderMod * thunderFilterAmt)).clip(20, 18000);
       var modReverb   = (reverbMix + (thunderMod * thunderReverbAmt)).clip(0, 1);
       sig = RLPF.ar(sig, modFreq.lag(0.05), rq.lag(0.1));
       sig = FreeVerb2.ar(sig[0], sig[1], modReverb, reverbRoom, 0.5);
-      sig = Limiter.ar(sig, 0.95);
+      sig = Limiter.ar(sig, 0.8) * outputLevel;
       Out.ar(out, sig);
     }).add;
 
@@ -105,13 +105,15 @@ Engine_Murmuration : CroneEngine {
       \reverbRoom,       0.8,
       \thunderBus,       thunderBus,
       \thunderFilterAmt, 3000,
-      \thunderReverbAmt, 0.3
+      \thunderReverbAmt, 0.3,
+      \outputLevel,      0.6
     ], fxGroup);
 
     droneSynths  = Dictionary.new;
     filterMul    = 1.0;
     droneAttack  = 0.3;
     droneRelease = 2.1;
+    outputLevel  = 0.6;
 
     // ─── Commands ────────────────────────────────────────────────────────
 
@@ -127,7 +129,7 @@ Engine_Murmuration : CroneEngine {
         droneSynths[key] = Synth(\murmurDrone, [
           \out,         fxBus,
           \freq,        freq,
-          \amp,         (presence * 0.2).max(0.01),
+          \amp,         (presence * 0.12).max(0.005),
           \modIndex,    modIndex,
           \gate,        1,
           \thunderBus,  thunderBus,
@@ -146,7 +148,7 @@ Engine_Murmuration : CroneEngine {
 
       droneSynths[key] !? { | synth |
         synth.set(
-          \amp,      (presence * 0.2).max(0),
+          \amp,      (presence * 0.12).max(0),
           \modIndex, modIndex
         );
       };
@@ -172,7 +174,7 @@ Engine_Murmuration : CroneEngine {
       Synth(\murmurTrigger, [
         \out,  fxBus,
         \freq, freq,
-        \amp,  velocity * 0.4
+        \amp,  velocity * 0.25
       ], srcGroup);
     });
 
@@ -206,6 +208,11 @@ Engine_Murmuration : CroneEngine {
 
     this.addCommand("resonance", "f", { arg msg;
       fxSynth.set(\rq, msg[1]);
+    });
+
+    this.addCommand("output_level", "f", { arg msg;
+      outputLevel = msg[1];
+      fxSynth.set(\outputLevel, outputLevel);
     });
 
     this.addCommand("reverb_mix", "f", { arg msg;

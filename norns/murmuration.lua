@@ -82,6 +82,7 @@ local thunder_intensity = 0
 local THUNDER_DECAY = 0.97
 local base_separation_weight = 1.5
 local base_cohesion_weight = 1.0
+local DEFAULT_OUTPUT_LEVEL = 0.6
 
 local config = {
   max_speed             = 0.8,
@@ -367,6 +368,9 @@ function init()
   params:add_number("trigger_threshold", "trigger density", 1, 10, 3)
   params:add_number("max_drones", "max drones", 1, 48, max_drones)
   params:set_action("max_drones", function(v) max_drones = v end)
+
+  params:add_control("output_level", "output level", controlspec.new(0, 1, "lin", 0.01, DEFAULT_OUTPUT_LEVEL))
+  params:set_action("output_level", function(v) engine.output_level(v) end)
 
   params:add_control("obstacle_avoidance_weight", "avoidance", controlspec.new(0, 15, "lin", 0.5, 5.0))
   params:set_action("obstacle_avoidance_weight", function(v) config.obstacle_avoidance_weight = v end)

@@ -41,7 +41,7 @@ Active grid cells are both audio zones and obstacle points for the flock.
 
 ## Parameters
 
-The script exposes params for flock weights, scale, audio mode, drone radius, trigger density, maximum drone count, and obstacle avoidance. `max drones` defaults to 24 to keep the engine load modest on norns.
+The script exposes params for flock weights, scale, audio mode, drone radius, trigger density, maximum drone count, output level, and obstacle avoidance. `max drones` defaults to 24 to keep the engine load modest on norns. `output level` defaults to 0.6 to leave headroom on hardware.
 
 ## Smoke Test
 
