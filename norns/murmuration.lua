@@ -83,6 +83,18 @@ local THUNDER_DECAY = 0.97
 local base_separation_weight = 1.5
 local base_cohesion_weight = 1.0
 local DEFAULT_OUTPUT_LEVEL = 0.6
+local DEFAULT_DRONE_LEVEL = 0.12
+local DEFAULT_TRIGGER_LEVEL = 0.25
+local DEFAULT_THUNDER_LEVEL = 0.2
+local DEFAULT_DRONE_MOD_MIN = 1.0
+local DEFAULT_DRONE_MOD_DEPTH = 5.0
+local drone_mod_min = DEFAULT_DRONE_MOD_MIN
+local drone_mod_depth = DEFAULT_DRONE_MOD_DEPTH
+
+local midi_16n_device
+local midi_16n_enabled = 1 -- 1=off, 2=on
+local midi_16n_port = 1
+local midi_16n_channel = 1
 
 local config = {
   max_speed             = 0.8,
@@ -99,6 +111,60 @@ local config = {
   obstacle_look_ahead       = 7.5,
   obstacle_radius           = 4.0,
 }
+
+-------------------------------------------------
+-- 16n MIDI mapping
+-------------------------------------------------
+
+local fader_16n_mappings = {
+  { label = "output level",        cc = 32, param = "output_level",       min = 0,    max = 1 },
+  { label = "drone level",         cc = 33, param = "drone_level",        min = 0,    max = 0.25 },
+  { label = "trigger level",       cc = 34, param = "trigger_level",      min = 0,    max = 0.5 },
+  { label = "thunder level",       cc = 35, param = "thunder_level",      min = 0,    max = 0.4 },
+  { label = "attack",              cc = 36, param = "attack_time",        min = 0.01, max = 2 },
+  { label = "release",             cc = 37, param = "release_time",       min = 0.1,  max = 5 },
+  { label = "filter",              cc = 38, param = "filter_mul",         min = 0.25, max = 4 },
+  { label = "resonance",           cc = 39, param = "resonance",          min = 0.1,  max = 1 },
+  { label = "reverb mix",          cc = 40, param = "reverb_mix",         min = 0,    max = 1 },
+  { label = "reverb room",         cc = 41, param = "reverb_room",        min = 0,    max = 1 },
+  { label = "thunder filter",      cc = 42, param = "thunder_filter_amt", min = 0,    max = 6000 },
+  { label = "thunder reverb",      cc = 43, param = "thunder_reverb_amt", min = 0,    max = 0.5 },
+  { label = "mod min",             cc = 44, param = "drone_mod_min",      min = 0.2,  max = 4 },
+  { label = "mod depth",           cc = 45, param = "drone_mod_depth",    min = 0,    max = 10 },
+  { label = "drone radius",        cc = 46, param = "drone_radius",       min = 10,   max = 150 },
+  { label = "max drones",          cc = 47, param = "max_drones",         min = 1,    max = 48, integer = true },
+}
+
+local function handle_16n_midi(data)
+  if midi_16n_enabled ~= 2 then return end
+
+  local msg = midi.to_msg(data)
+  if msg.type ~= "cc" or msg.ch ~= midi_16n_channel then return end
+
+  for _, mapping in ipairs(fader_16n_mappings) do
+    if msg.cc == mapping.cc then
+      local normalized = util.clamp(msg.val / 127, 0, 1)
+      local value = mapping.min + normalized * (mapping.max - mapping.min)
+      if mapping.integer then
+        value = math.floor(value + 0.5)
+      end
+      params:set(mapping.param, value)
+      return
+    end
+  end
+end
+
+local function connect_16n_midi()
+  if midi_16n_device then
+    midi_16n_device.event = nil
+    midi_16n_device = nil
+  end
+
+  if midi_16n_enabled == 2 then
+    midi_16n_device = midi.connect(midi_16n_port)
+    midi_16n_device.event = handle_16n_midi
+  end
+end
 
 -------------------------------------------------
 -- grid spatial helpers
@@ -224,7 +290,7 @@ local function update_audio()
     for i = 1, math.min(#candidates, max_drones) do
       local candidate = candidates[i]
       local presence = math.max(0, math.min(1, 1.0 - candidate.dist / drone_radius))
-      local mod_index = 1 + presence * 5
+      local mod_index = drone_mod_min + presence * drone_mod_depth
       cells_to_drone[candidate.key] = true
 
       if not active_drones[candidate.key] then
@@ -372,14 +438,71 @@ function init()
   params:add_control("output_level", "output level", controlspec.new(0, 1, "lin", 0.01, DEFAULT_OUTPUT_LEVEL))
   params:set_action("output_level", function(v) engine.output_level(v) end)
 
+  params:add_control("drone_level", "drone level", controlspec.new(0, 0.25, "lin", 0.001, DEFAULT_DRONE_LEVEL))
+  params:set_action("drone_level", function(v) engine.drone_level(v) end)
+
+  params:add_control("trigger_level", "trigger level", controlspec.new(0, 0.5, "lin", 0.001, DEFAULT_TRIGGER_LEVEL))
+  params:set_action("trigger_level", function(v) engine.trigger_level(v) end)
+
+  params:add_control("thunder_level", "thunder level", controlspec.new(0, 0.4, "lin", 0.001, DEFAULT_THUNDER_LEVEL))
+  params:set_action("thunder_level", function(v) engine.thunder_level(v) end)
+
+  params:add_control("attack_time", "attack", controlspec.new(0.01, 2, "lin", 0.01, 0.3))
+  params:set_action("attack_time", function(v) engine.attack_time(v) end)
+
+  params:add_control("release_time", "release", controlspec.new(0.1, 5, "lin", 0.01, 2.1))
+  params:set_action("release_time", function(v) engine.release_time(v) end)
+
+  params:add_control("filter_mul", "filter", controlspec.new(0.25, 4, "lin", 0.01, 1.0))
+  params:set_action("filter_mul", function(v) engine.filter_mul(v) end)
+
+  params:add_control("resonance", "resonance", controlspec.new(0.1, 1, "lin", 0.01, 0.7))
+  params:set_action("resonance", function(v) engine.resonance(v) end)
+
+  params:add_control("reverb_mix", "reverb mix", controlspec.new(0, 1, "lin", 0.01, 0.6))
+  params:set_action("reverb_mix", function(v) engine.reverb_mix(v) end)
+
+  params:add_control("reverb_room", "reverb room", controlspec.new(0, 1, "lin", 0.01, 0.8))
+  params:set_action("reverb_room", function(v) engine.reverb_room(v) end)
+
+  params:add_control("thunder_filter_amt", "thunder filter", controlspec.new(0, 6000, "lin", 10, 3000))
+  params:set_action("thunder_filter_amt", function(v) engine.thunder_filter_amt(v) end)
+
+  params:add_control("thunder_reverb_amt", "thunder reverb", controlspec.new(0, 0.5, "lin", 0.01, 0.3))
+  params:set_action("thunder_reverb_amt", function(v) engine.thunder_reverb_amt(v) end)
+
+  params:add_control("drone_mod_min", "mod min", controlspec.new(0.2, 4, "lin", 0.01, DEFAULT_DRONE_MOD_MIN))
+  params:set_action("drone_mod_min", function(v) drone_mod_min = v end)
+
+  params:add_control("drone_mod_depth", "mod depth", controlspec.new(0, 10, "lin", 0.01, DEFAULT_DRONE_MOD_DEPTH))
+  params:set_action("drone_mod_depth", function(v) drone_mod_depth = v end)
+
   params:add_control("obstacle_avoidance_weight", "avoidance", controlspec.new(0, 15, "lin", 0.5, 5.0))
   params:set_action("obstacle_avoidance_weight", function(v) config.obstacle_avoidance_weight = v end)
 
   params:add_control("obstacle_look_ahead", "look ahead", controlspec.new(2, 20, "lin", 0.5, 7.5))
   params:set_action("obstacle_look_ahead", function(v) config.obstacle_look_ahead = v end)
 
+  params:add_separator("16n")
+  params:add_option("16n_enabled", "16n midi", {"off", "on"}, midi_16n_enabled)
+  params:set_action("16n_enabled", function(v)
+    midi_16n_enabled = v
+    connect_16n_midi()
+  end)
+
+  params:add_number("16n_port", "16n port", 1, 16, midi_16n_port)
+  params:set_action("16n_port", function(v)
+    midi_16n_port = v
+    connect_16n_midi()
+  end)
+
+  params:add_number("16n_channel", "16n channel", 1, 16, midi_16n_channel)
+  params:set_action("16n_channel", function(v) midi_16n_channel = v end)
+
   -- create flock
   flock = Boids.Flock.new(params:get("boid_count"), config)
+
+  connect_16n_midi()
 
   -- connect devices
   grid_device = grid.connect()

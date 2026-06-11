@@ -9,6 +9,7 @@ Engine_Murmuration : CroneEngine {
   var <fxSynth;
   var <droneSynths;
   var <filterMul, <droneAttack, <droneRelease, <outputLevel;
+  var <droneLevel, <triggerLevel, <thunderLevel;
 
   *new { arg context, doneCallback;
     ^super.new(context, doneCallback);
@@ -49,14 +50,14 @@ Engine_Murmuration : CroneEngine {
     }).add;
 
     SynthDef(\murmurThunder, {
-      | out = 0, thunderBus = 0, modScale = 6 |
+      | out = 0, thunderBus = 0, modScale = 6, amp = 0.2 |
       var strike   = PinkNoise.ar * EnvGen.kr(Env.perc(0.001, 0.08), doneAction: Done.none);
       var rumble   = PinkNoise.ar * EnvGen.kr(Env.perc(0.05, 4.5, curve: -3), doneAction: Done.none);
       var tail     = BrownNoise.ar * EnvGen.kr(Env.perc(0.3, 8.0, curve: -4), doneAction: Done.none) * 0.3;
       var sub      = SinOsc.ar(XLine.kr(60, 15, 0.8, doneAction: Done.none))
                        * EnvGen.kr(Env.perc(0.01, 2.5), doneAction: Done.none);
       var sig      = (strike * 0.6) + (rumble * 0.7) + (tail * 0.5) + (sub * 0.4);
-      var combs, diffused, stereo, amp;
+      var combs, diffused, stereo, thunderAmp;
       combs =
         CombC.ar(sig, 0.5, 0.1297 + SinOsc.kr(0.07, 0, 0.002), 5.2, 0.18) +
         CombC.ar(sig, 0.5, 0.1823 + SinOsc.kr(0.11, 0.5, 0.002), 6.1, 0.15) +
@@ -71,9 +72,9 @@ Engine_Murmuration : CroneEngine {
       sig = sig + (diffused * 0.45);
       sig = LPF.ar(sig, 1800);
       sig = LPF.ar(sig, 900 + EnvGen.kr(Env.perc(0.001, 3.0), doneAction: Done.none) * 800);
-      stereo = sig.dup * 0.2;
-      amp = Amplitude.kr(stereo[0], attackTime: 0.001, releaseTime: 1.0);
-      Out.kr(thunderBus, amp * modScale);
+      stereo = sig.dup * amp;
+      thunderAmp = Amplitude.kr(stereo[0], attackTime: 0.001, releaseTime: 1.0);
+      Out.kr(thunderBus, thunderAmp * modScale);
       DetectSilence.ar(stereo[0], amp: 0.0005, time: 1.0, doneAction: Done.freeSelf);
       Out.ar(out, stereo);
     }).add;
@@ -114,6 +115,9 @@ Engine_Murmuration : CroneEngine {
     droneAttack  = 0.3;
     droneRelease = 2.1;
     outputLevel  = 0.6;
+    droneLevel   = 0.12;
+    triggerLevel = 0.25;
+    thunderLevel = 0.2;
 
     // ─── Commands ────────────────────────────────────────────────────────
 
@@ -129,7 +133,7 @@ Engine_Murmuration : CroneEngine {
         droneSynths[key] = Synth(\murmurDrone, [
           \out,         fxBus,
           \freq,        freq,
-          \amp,         (presence * 0.12).max(0.005),
+          \amp,         (presence * droneLevel).max(0.005),
           \modIndex,    modIndex,
           \gate,        1,
           \thunderBus,  thunderBus,
@@ -148,7 +152,7 @@ Engine_Murmuration : CroneEngine {
 
       droneSynths[key] !? { | synth |
         synth.set(
-          \amp,      (presence * 0.12).max(0),
+          \amp,      (presence * droneLevel).max(0),
           \modIndex, modIndex
         );
       };
@@ -174,7 +178,7 @@ Engine_Murmuration : CroneEngine {
       Synth(\murmurTrigger, [
         \out,  fxBus,
         \freq, freq,
-        \amp,  velocity * 0.25
+        \amp,  velocity * triggerLevel
       ], srcGroup);
     });
 
@@ -188,7 +192,8 @@ Engine_Murmuration : CroneEngine {
       Synth(\murmurThunder, [
         \out,        fxBus,
         \thunderBus, thunderBus,
-        \modScale,   10
+        \modScale,   10,
+        \amp,        thunderLevel
       ], srcGroup);
     });
 
@@ -213,6 +218,18 @@ Engine_Murmuration : CroneEngine {
     this.addCommand("output_level", "f", { arg msg;
       outputLevel = msg[1];
       fxSynth.set(\outputLevel, outputLevel);
+    });
+
+    this.addCommand("drone_level", "f", { arg msg;
+      droneLevel = msg[1];
+    });
+
+    this.addCommand("trigger_level", "f", { arg msg;
+      triggerLevel = msg[1];
+    });
+
+    this.addCommand("thunder_level", "f", { arg msg;
+      thunderLevel = msg[1];
     });
 
     this.addCommand("reverb_mix", "f", { arg msg;
