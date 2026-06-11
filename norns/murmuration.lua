@@ -13,7 +13,7 @@
 
 engine.name = "Murmuration"
 
-local Boids = include("murmuration/lib/boids")
+local Boids = include("lib/boids")
 
 -------------------------------------------------
 -- scales (minor pentatonic, matching web version)

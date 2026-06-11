@@ -7,18 +7,24 @@ This folder contains the norns version of Murmuration: a small 3D boids simulati
 Copy the contents of this `norns` directory to:
 
 ```text
-/home/we/dust/code/murmuration
+/home/we/dust/code/murmuration-norns
 ```
 
 The installed tree should look like:
 
 ```text
-/home/we/dust/code/murmuration/murmuration.lua
-/home/we/dust/code/murmuration/lib/boids.lua
-/home/we/dust/code/murmuration/lib/Engine_Murmuration.sc
+/home/we/dust/code/murmuration-norns/murmuration.lua
+/home/we/dust/code/murmuration-norns/lib/boids.lua
+/home/we/dust/code/murmuration-norns/lib/Engine_Murmuration.sc
 ```
 
-The Lua script uses `include("murmuration/lib/boids")`, so the containing folder must be named `murmuration`.
+The Lua script uses project-relative includes.
+
+## Maiden / Project Manager Install
+
+Installing this whole repository with maiden's `;install <github-url>` command is not currently enough, because maiden installs the repository root into `/home/we/dust/code/<repo-name>`. In this monorepo, the norns entrypoint is nested at `norns/murmuration.lua`, while norns expects the runnable script and `lib` folder at the installed project root.
+
+For direct maiden git install support, publish the contents of this folder as a norns-only repository. This source repository includes Copybara configuration intended to mirror this folder into a separate `murmuration-norns` repository whose root contains `murmuration.lua` and `lib/`.
 
 ## Controls
 
