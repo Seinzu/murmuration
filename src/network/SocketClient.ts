@@ -1,11 +1,28 @@
 type ToggleCallback = (row: number, col: number) => void;
 
+export interface ArcParam {
+  name: string;
+  min: number;
+  max: number;
+  default: number;
+  oscPath: string;
+}
+
+export interface ArcMappingsData {
+  availableParams: ArcParam[];
+  encoderMap: number[];
+  encoders: ArcParam[];
+}
+
+type ArcMappingsCallback = (data: ArcMappingsData) => void;
+
 export class SocketClient {
   private socket: WebSocket | null = null;
   private url: string;
   private heartbeatIntervalId: number | null = null;
   private reconnectTimeoutId: number | null = null;
   private onToggleCallback: ToggleCallback | null = null;
+  private onArcMappingsCallback: ArcMappingsCallback | null = null;
 
   public isConnected: boolean = false;
 
@@ -37,6 +54,10 @@ export class SocketClient {
           if (this.onToggleCallback) {
             this.onToggleCallback(data.row, data.col);
           }
+        } else if (data.type === 'arc_mappings') {
+          if (this.onArcMappingsCallback) {
+            this.onArcMappingsCallback(data);
+          }
         }
       } catch (e) {
         console.error('[SocketClient] Failed to parse message', event.data);
@@ -52,7 +73,6 @@ export class SocketClient {
 
     this.socket.onerror = (error) => {
       console.error('[SocketClient] WebSocket error observed:', error);
-      // Let onclose handle the reconnection logic
     };
   }
 
@@ -74,7 +94,7 @@ export class SocketClient {
           timestamp: Date.now()
         }));
       }
-    }, 5000); // 5 seconds as requested
+    }, 5000);
   }
 
   private stopHeartbeat() {
@@ -94,6 +114,34 @@ export class SocketClient {
         type: 'grid_state',
         data: cells
       }));
+    }
+  }
+
+  public sendAudioEvent(event: Record<string, unknown>) {
+    if (this.isConnected && this.socket && this.socket.readyState === WebSocket.OPEN) {
+      this.socket.send(JSON.stringify({ type: 'audio_event', ...event }));
+    }
+  }
+
+  public onArcMappingsUpdate(callback: ArcMappingsCallback) {
+    this.onArcMappingsCallback = callback;
+  }
+
+  public requestArcMappings() {
+    if (this.isConnected && this.socket && this.socket.readyState === WebSocket.OPEN) {
+      this.socket.send(JSON.stringify({ type: 'get_arc_mappings' }));
+    }
+  }
+
+  public sendArcMapping(encoder: number, paramIndex: number) {
+    if (this.isConnected && this.socket && this.socket.readyState === WebSocket.OPEN) {
+      this.socket.send(JSON.stringify({ type: 'set_arc_mapping', encoder, paramIndex }));
+    }
+  }
+
+  public sendAddArcParam(param: ArcParam) {
+    if (this.isConnected && this.socket && this.socket.readyState === WebSocket.OPEN) {
+      this.socket.send(JSON.stringify({ type: 'add_arc_param', param }));
     }
   }
 }
