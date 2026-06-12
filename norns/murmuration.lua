@@ -67,10 +67,10 @@ local SIM_BOUNDS = 40 -- simulation space radius
 
 -- arc encoder param mappings
 local arc_params = {
-  { id = "attack_time",  min = 0.01, max = 2.0, default = 0.3 },
-  { id = "release_time", min = 0.1,  max = 5.0, default = 2.1 },
-  { id = "filter_mul",   min = 0.25, max = 4.0, default = 1.0 },
-  { id = "resonance",    min = 0.1,  max = 1.0, default = 0.7 },
+  { id = "attack_time",  label = "attack",    min = 0.01, max = 2.0, default = 0.3 },
+  { id = "release_time", label = "release",   min = 0.1,  max = 5.0, default = 2.1 },
+  { id = "filter_mul",   label = "filter",    min = 0.25, max = 4.0, default = 1.0 },
+  { id = "resonance",    label = "resonance", min = 0.1,  max = 1.0, default = 0.7 },
 }
 local arc_values = {} -- normalised 0-1
 
@@ -95,6 +95,11 @@ local midi_16n_device
 local midi_16n_enabled = 1 -- 1=off, 2=on
 local midi_16n_port = 1
 local midi_16n_channel = 1
+
+local overlay_label = nil
+local overlay_value = nil
+local overlay_until = 0
+local OVERLAY_DURATION = 6
 
 local config = {
   max_speed             = 0.8,
@@ -135,6 +140,24 @@ local fader_16n_mappings = {
   { label = "max drones",          cc = 47, param = "max_drones",         min = 1,    max = 48, integer = true },
 }
 
+local function show_param_overlay(label, value, integer)
+  overlay_label = label
+  if type(value) == "number" then
+    if integer then
+      overlay_value = string.format("%d", value)
+    elseif math.abs(value) >= 100 then
+      overlay_value = string.format("%.0f", value)
+    elseif math.abs(value) >= 10 then
+      overlay_value = string.format("%.1f", value)
+    else
+      overlay_value = string.format("%.2f", value)
+    end
+  else
+    overlay_value = tostring(value)
+  end
+  overlay_until = util.time() + OVERLAY_DURATION
+end
+
 local function handle_16n_midi(data)
   if midi_16n_enabled ~= 2 then return end
 
@@ -149,6 +172,7 @@ local function handle_16n_midi(data)
         value = math.floor(value + 0.5)
       end
       params:set(mapping.param, value)
+      show_param_overlay(mapping.label, value, mapping.integer)
       return
     end
   end
@@ -164,6 +188,26 @@ local function connect_16n_midi()
     midi_16n_device = midi.connect(midi_16n_port)
     midi_16n_device.event = handle_16n_midi
   end
+end
+
+local function draw_param_overlay()
+  if overlay_label == nil then return end
+
+  if util.time() >= overlay_until then
+    overlay_label = nil
+    overlay_value = nil
+    return
+  end
+
+  screen.level(0)
+  screen.rect(62, 0, 66, 19)
+  screen.fill()
+  screen.level(15)
+  screen.move(126, 8)
+  screen.text_right(overlay_label)
+  screen.level(10)
+  screen.move(126, 17)
+  screen.text_right(overlay_value)
 end
 
 -------------------------------------------------
@@ -368,6 +412,7 @@ local function arc_delta(n, d)
   local p = arc_params[n]
   local mapped = p.min + arc_values[n] * (p.max - p.min)
   engine[p.id](mapped)
+  show_param_overlay(p.label, mapped)
   arc_redraw()
 end
 
@@ -376,6 +421,7 @@ local function arc_key(n, z)
     local p = arc_params[n]
     arc_values[n] = (p.default - p.min) / (p.max - p.min)
     engine[p.id](p.default)
+    show_param_overlay(p.label, p.default)
     arc_redraw()
   end
 end
@@ -586,6 +632,8 @@ function redraw()
   screen.text("boids: " .. #flock.boids)
   screen.move(2, 62)
   screen.text(audio_mode == 1 and "drone" or "trigger")
+
+  draw_param_overlay()
 
   screen.update()
 end

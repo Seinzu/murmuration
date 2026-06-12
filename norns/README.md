@@ -61,6 +61,8 @@ Default 16n firmware sends faders 1-16 as MIDI CC32-47 on channel 1. Murmuration
 8  resonance           16 max drones
 ```
 
+The most recently changed 16n or arc parameter is shown in the top-right of the norns screen for a few seconds, with its current value.
+
 ## Smoke Test
 
 1. Launch `MURMURATION` from the norns script selector.
