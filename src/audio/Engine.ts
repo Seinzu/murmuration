@@ -6,6 +6,7 @@ export type AudioMode = 'drone' | 'trigger';
 export interface BoidSpatialData {
   closestCell: { row: number; col: number } | null;
   distanceToCell: number;
+  pitchIndex: number;
 }
 
 export interface SpatialData {
@@ -27,14 +28,16 @@ export class AudioEngine {
   droneRadius: number = 50;
   triggerDensityThreshold: number = 3;
   boidRange: number = 60;
-  maxBoidDrones: number = 100;
+  maxBoidDrones: number = 48;
+  dedupeBoidPitches: boolean = false;
+  voiceGainCompensation: boolean = true;
 
   // Thunder intensity envelope (0-1), decays each frame
   thunderIntensity: number = 0;
   private static readonly THUNDER_DECAY = 0.97;
 
   private socketClient: SocketClient | null = null;
-  private activeBoidDrones: Map<number, { row: number; col: number; presence: number }> = new Map();
+  private activeBoidDrones: Map<number, { row: number; col: number; freq: number; presence: number }> = new Map();
   private lastTriggerTime: Record<string, number> = {};
   private frameCount: number = 0;
 
@@ -48,6 +51,16 @@ export class AudioEngine {
   private getFreqForGrid(row: number, _col: number): number {
     const scale = Scales[this.currentScaleName];
     return scale[row % scale.length];
+  }
+
+  private getFreqForBoid(pitchIndex: number): number {
+    const scale = Scales[this.currentScaleName];
+    return scale[this.getScalePitchIndex(pitchIndex)];
+  }
+
+  private getScalePitchIndex(pitchIndex: number): number {
+    const scale = Scales[this.currentScaleName];
+    return pitchIndex % scale.length;
   }
 
   private send(event: Record<string, unknown>) {
@@ -101,31 +114,52 @@ export class AudioEngine {
   }
 
   private handleBoidDroneMode(spatialData: SpatialData) {
-    // Build list of boids with their closest cell and distance, sorted by distance
-    const candidates: { boidIndex: number; row: number; col: number; distance: number }[] = [];
+    // Build boid voice candidates from distance to active cells and stable boid pitch.
+    const candidates: {
+      boidIndex: number;
+      row: number;
+      col: number;
+      distance: number;
+      pitchIndex: number;
+      freq: number;
+      rawPresence: number;
+    }[] = [];
 
     for (let i = 0; i < spatialData.boids.length; i++) {
       const boidData = spatialData.boids[i];
       if (boidData.closestCell && boidData.distanceToCell < this.boidRange) {
+        const rawPresence = Math.max(0, Math.min(1, 1.0 - boidData.distanceToCell / this.boidRange));
+        const pitchIndex = this.getScalePitchIndex(boidData.pitchIndex);
         candidates.push({
           boidIndex: i,
           row: boidData.closestCell.row,
           col: boidData.closestCell.col,
-          distance: boidData.distanceToCell
+          distance: boidData.distanceToCell,
+          pitchIndex,
+          freq: this.getFreqForBoid(boidData.pitchIndex),
+          rawPresence
         });
       }
     }
 
-    // Sort by distance (closest first) and cap at maxBoidDrones
-    candidates.sort((a, b) => a.distance - b.distance);
-    const activeCandidates = candidates.slice(0, this.maxBoidDrones);
+    // Sort by strongest presence first, optionally dedupe exact heard pitches, then cap.
+    candidates.sort((a, b) => b.rawPresence - a.rawPresence);
+    const dedupedCandidates = this.dedupeBoidPitches
+      ? candidates.filter((candidate, index, all) =>
+          all.findIndex(other => other.pitchIndex === candidate.pitchIndex) === index
+        )
+      : candidates;
+    const activeCandidates = dedupedCandidates.slice(0, this.maxBoidDrones);
     const activeSet = new Set(activeCandidates.map(c => c.boidIndex));
+    const gainScale = this.voiceGainCompensation && activeCandidates.length > 1
+      ? 1 / Math.sqrt(activeCandidates.length)
+      : 1;
 
     // Process each candidate
     for (const candidate of activeCandidates) {
-      const presence = Math.max(0, Math.min(1, 1.0 - candidate.distance / this.boidRange));
-      const modIndex = 1 + presence * 5;
-      const freq = this.getFreqForGrid(candidate.row, candidate.col);
+      const presence = candidate.rawPresence * gainScale;
+      const modIndex = 1 + candidate.rawPresence * 5;
+      const freq = candidate.freq;
       const existing = this.activeBoidDrones.get(candidate.boidIndex);
 
       if (!existing) {
@@ -134,15 +168,17 @@ export class AudioEngine {
         this.activeBoidDrones.set(candidate.boidIndex, {
           row: candidate.row,
           col: candidate.col,
+          freq,
           presence
         });
-      } else if (existing.row !== candidate.row || existing.col !== candidate.col) {
-        // Cell changed — re-trigger with new frequency
+      } else if (existing.row !== candidate.row || existing.col !== candidate.col || existing.freq !== freq) {
+        // Cell or pitch changed — re-trigger with new frequency
         this.send({ event: 'drone_off', boidIndex: candidate.boidIndex });
         this.send({ event: 'drone_on', boidIndex: candidate.boidIndex, freq, presence, modIndex });
         this.activeBoidDrones.set(candidate.boidIndex, {
           row: candidate.row,
           col: candidate.col,
+          freq,
           presence
         });
       } else if (Math.abs(existing.presence - presence) > 0.02) {

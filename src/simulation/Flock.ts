@@ -28,7 +28,7 @@ export class Flock {
         const y = r * Math.sin(phi) * Math.sin(theta);
         const z = r * Math.cos(phi);
 
-        this.boids.push(new Boid(x, y, z));
+        this.boids.push(new Boid(x, y, z, this.boids.length));
       }
     } else if (newCount < this.boids.length) {
       this.boids.splice(newCount);

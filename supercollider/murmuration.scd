@@ -17,6 +17,9 @@
   Note: this sandbox routes synths straight to hardware out (bus 0). The
   production murmurFX chain (filter + multitap delay + reverb + thunder
   cross-mod) is only audible after promoting to the bundled path.
+
+  For engine-style auditioning with synthetic boid frames, use
+  supercollider/audition.scd.
 */
 
 s.boot;

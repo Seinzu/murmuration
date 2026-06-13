@@ -133,7 +133,7 @@ Engine_Murmuration : CroneEngine {
         droneSynths[key] = Synth(\murmurDrone, [
           \out,         fxBus,
           \freq,        freq,
-          \amp,         (presence * droneLevel).max(0.005),
+          \amp,         (presence * droneLevel).max(0),
           \modIndex,    modIndex,
           \gate,        1,
           \thunderBus,  thunderBus,

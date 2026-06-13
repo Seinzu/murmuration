@@ -20,8 +20,9 @@ export class Boid {
   position: THREE.Vector3;
   velocity: THREE.Vector3;
   acceleration: THREE.Vector3;
+  pitchIndex: number;
 
-  constructor(x: number, y: number, z: number) {
+  constructor(x: number, y: number, z: number, pitchIndex: number) {
     this.position = new THREE.Vector3(x, y, z);
     this.velocity = new THREE.Vector3(
       (Math.random() - 0.5) * 2,
@@ -31,6 +32,7 @@ export class Boid {
     this.velocity.normalize();
     this.velocity.multiplyScalar(Math.random() * 2 + 1);
     this.acceleration = new THREE.Vector3(0, 0, 0);
+    this.pitchIndex = pitchIndex;
   }
 
   applyForce(force: THREE.Vector3) {

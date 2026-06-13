@@ -248,7 +248,9 @@ function Flock:set_count(n)
     local x = r * math.sin(phi) * math.cos(theta)
     local y = r * math.sin(phi) * math.sin(theta)
     local z = r * math.cos(phi)
-    table.insert(self.boids, Boid.new(x, y, z))
+    local boid = Boid.new(x, y, z)
+    boid.pitch_index = #self.boids + 1
+    table.insert(self.boids, boid)
   end
   while #self.boids > n do
     table.remove(self.boids)

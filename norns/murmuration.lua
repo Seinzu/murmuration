@@ -61,7 +61,17 @@ local audio_mode = 1 -- 1=drone, 2=trigger
 local active_drones = {}
 local last_trigger_time = {}
 local current_scale_idx = 1
-local max_drones = 24
+local max_drones = 12
+local voice_dedupe = 2 -- 1=off, 2=by exact pitch
+local voice_gain_comp = 2 -- 1=off, 2=sqrt
+local sound_test_scene = 1 -- 1=off, 2=fixed, 3=sweep, 4=dense
+local sound_test_row = 4
+local sound_test_col = 8
+local sound_test_distance = 20
+local sound_test_spread = 4
+local sound_test_speed = 0.4
+local sound_test_phase = 0
+local sound_test_names = {"off", "fixed", "sweep", "dense"}
 
 local SIM_BOUNDS = 40 -- simulation space radius
 
@@ -91,8 +101,8 @@ local DEFAULT_DRONE_MOD_DEPTH = 5.0
 local drone_mod_min = DEFAULT_DRONE_MOD_MIN
 local drone_mod_depth = DEFAULT_DRONE_MOD_DEPTH
 
-local midi_16n_device
-local midi_16n_enabled = 1 -- 1=off, 2=on
+local midi_16n_devices = {}
+local midi_16n_mode = 2 -- 1=off, 2=auto, 3=manual
 local midi_16n_port = 1
 local midi_16n_channel = 1
 
@@ -159,7 +169,7 @@ local function show_param_overlay(label, value, integer)
 end
 
 local function handle_16n_midi(data)
-  if midi_16n_enabled ~= 2 then return end
+  if midi_16n_mode == 1 then return end
 
   local msg = midi.to_msg(data)
   if msg.type ~= "cc" or msg.ch ~= midi_16n_channel then return end
@@ -179,14 +189,22 @@ local function handle_16n_midi(data)
 end
 
 local function connect_16n_midi()
-  if midi_16n_device then
-    midi_16n_device.event = nil
-    midi_16n_device = nil
+  for _, device in ipairs(midi_16n_devices) do
+    device.event = nil
   end
+  midi_16n_devices = {}
 
-  if midi_16n_enabled == 2 then
-    midi_16n_device = midi.connect(midi_16n_port)
-    midi_16n_device.event = handle_16n_midi
+  if midi_16n_mode == 1 then return end
+
+  local first_port = midi_16n_mode == 2 and 1 or midi_16n_port
+  local last_port = midi_16n_mode == 2 and 16 or midi_16n_port
+
+  for port = first_port, last_port do
+    local ok, device = pcall(midi.connect, port)
+    if ok and device then
+      device.event = handle_16n_midi
+      table.insert(midi_16n_devices, device)
+    end
   end
 end
 
@@ -232,11 +250,54 @@ local function active_cell_positions()
   return positions
 end
 
+local function sound_test_active()
+  return sound_test_scene ~= 1
+end
+
+local function is_audio_cell_active(r, c)
+  return grid_cells[r][c] or
+    (sound_test_active() and r == sound_test_row and c == sound_test_col)
+end
+
 local function all_drones_off()
-  for key, _ in pairs(active_drones) do
-    local r, c = key:match("(%d+),(%d+)")
-    engine.drone_off(tonumber(r), tonumber(c))
+  for key, voice in pairs(active_drones) do
+    engine.drone_off(voice.engine_row, voice.engine_col)
     active_drones[key] = nil
+  end
+end
+
+local function apply_sound_test_scene(delta)
+  if not sound_test_active() then return end
+
+  sound_test_phase = sound_test_phase + delta * math.max(sound_test_speed, 0.01)
+
+  local target = cell_position(sound_test_row, sound_test_col)
+  local distance = sound_test_distance
+  local spread = sound_test_spread
+  local center = Boids.vec3(target.x + distance, target.y, target.z)
+
+  if sound_test_scene == 3 then -- sweep
+    local angle = sound_test_phase * math.pi * 2
+    center = Boids.vec3(
+      target.x + math.cos(angle) * distance,
+      target.y + math.sin(angle) * distance,
+      target.z
+    )
+  elseif sound_test_scene == 4 then -- dense
+    center = target
+    spread = math.min(spread, 3)
+  end
+
+  for i, boid in ipairs(flock.boids) do
+    local angle = i * 2.399963229728653
+    local radius = spread * math.sqrt((i - 0.5) / math.max(#flock.boids, 1))
+    boid.position = Boids.vec3(
+      center.x + math.cos(angle) * radius,
+      center.y + math.sin(angle) * radius,
+      center.z + ((i % 5) - 2) * spread * 0.15
+    )
+    boid.velocity = Boids.vec3(sound_test_speed, 0, 0)
+    boid.acceleration = Boids.vec3(0, 0, 0)
   end
 end
 
@@ -270,12 +331,21 @@ local function get_freq(row)
   return s[((row - 1) % #s) + 1]
 end
 
+local function get_boid_pitch_index(boid)
+  local s = scales[current_scale_idx].freqs
+  return ((boid.pitch_index or 1) - 1) % #s + 1
+end
+
+local function get_boid_freq(boid)
+  local s = scales[current_scale_idx].freqs
+  return s[get_boid_pitch_index(boid)]
+end
+
 local function drone_key(r, c)
   return r .. "," .. c
 end
 
 local function update_audio()
-  local centroid = flock:centroid()
   local avg_speed = flock:avg_speed()
 
   engine.flock_speed(avg_speed)
@@ -285,30 +355,22 @@ local function update_audio()
   local density_radius_sq = 15 * 15
 
   local candidates = {}
-  local cells_to_drone = {}
+  local active_voice_keys = {}
+  local active_voice_count = 0
+  local active_cells = {}
 
   for r = 1, GRID_ROWS do
     for c = 1, GRID_COLS do
       local key = drone_key(r, c)
-      local is_active = grid_cells[r][c]
+      local is_active = is_audio_cell_active(r, c)
 
       if is_active then
         local cell_pos = cell_position(r, c)
+        table.insert(active_cells, { r = r, c = c, pos = cell_pos })
 
-        local dist_to_centroid = math.sqrt(Boids.v_dist_sq(cell_pos, centroid))
         local freq = get_freq(r)
 
-        if audio_mode == 1 then -- drone
-          if dist_to_centroid < drone_radius * 1.5 then
-            table.insert(candidates, {
-              key = key,
-              r = r,
-              c = c,
-              freq = freq,
-              dist = dist_to_centroid,
-            })
-          end
-        elseif audio_mode == 2 then -- trigger
+        if audio_mode == 2 then -- trigger
           local density = 0
           for _, boid in ipairs(flock.boids) do
             if Boids.v_dist_sq(boid.position, cell_pos) < density_radius_sq then
@@ -330,18 +392,80 @@ local function update_audio()
   end
 
   if audio_mode == 1 then
-    table.sort(candidates, function(a, b) return a.dist < b.dist end)
-    for i = 1, math.min(#candidates, max_drones) do
+    for boid_index, boid in ipairs(flock.boids) do
+      local nearest = nil
+      local nearest_dist_sq = nil
+
+      for _, cell in ipairs(active_cells) do
+        local dist_sq = Boids.v_dist_sq(boid.position, cell.pos)
+        if nearest == nil or dist_sq < nearest_dist_sq then
+          nearest = cell
+          nearest_dist_sq = dist_sq
+        end
+      end
+
+      if nearest and nearest_dist_sq < drone_radius * drone_radius then
+        local dist = math.sqrt(nearest_dist_sq)
+        local presence = math.max(0, math.min(1, 1.0 - dist / drone_radius))
+        local pitch_index = get_boid_pitch_index(boid)
+        table.insert(candidates, {
+          key = tostring(boid_index),
+          boid_index = boid_index,
+          engine_row = boid_index,
+          engine_col = 0,
+          r = nearest.r,
+          c = nearest.c,
+          freq = get_boid_freq(boid),
+          pitch_index = pitch_index,
+          dist = dist,
+          presence = presence,
+        })
+      end
+    end
+
+    table.sort(candidates, function(a, b) return a.presence > b.presence end)
+
+    if voice_dedupe == 2 then
+      local used_pitches = {}
+      local deduped = {}
+      for _, candidate in ipairs(candidates) do
+        if not used_pitches[candidate.pitch_index] then
+          table.insert(deduped, candidate)
+          used_pitches[candidate.pitch_index] = true
+        end
+      end
+      candidates = deduped
+    end
+
+    active_voice_count = math.min(#candidates, max_drones)
+    local gain_scale = 1
+    if voice_gain_comp == 2 and active_voice_count > 1 then
+      gain_scale = 1 / math.sqrt(active_voice_count)
+    end
+
+    for i = 1, active_voice_count do
       local candidate = candidates[i]
-      local presence = math.max(0, math.min(1, 1.0 - candidate.dist / drone_radius))
-      local mod_index = drone_mod_min + presence * drone_mod_depth
-      cells_to_drone[candidate.key] = true
+      local raw_presence = candidate.presence
+      local voice_presence = raw_presence * gain_scale
+      local mod_index = drone_mod_min + raw_presence * drone_mod_depth
+      active_voice_keys[candidate.key] = true
 
       if not active_drones[candidate.key] then
-        engine.drone_on(candidate.r, candidate.c, candidate.freq, presence, mod_index)
-        active_drones[candidate.key] = true
+        engine.drone_on(candidate.engine_row, candidate.engine_col, candidate.freq, voice_presence, mod_index)
+        active_drones[candidate.key] = {
+          engine_row = candidate.engine_row,
+          engine_col = candidate.engine_col,
+          freq = candidate.freq,
+          presence = voice_presence,
+        }
+      elseif active_drones[candidate.key].freq ~= candidate.freq then
+        engine.drone_off(candidate.engine_row, candidate.engine_col)
+        engine.drone_on(candidate.engine_row, candidate.engine_col, candidate.freq, voice_presence, mod_index)
+        active_drones[candidate.key].freq = candidate.freq
+        active_drones[candidate.key].presence = voice_presence
       else
-        engine.drone_update(candidate.r, candidate.c, presence, mod_index)
+        engine.drone_update(candidate.engine_row, candidate.engine_col, voice_presence, mod_index)
+        active_drones[candidate.key].presence = voice_presence
       end
     end
   else
@@ -350,10 +474,9 @@ local function update_audio()
 
   -- cleanup drones not in active set
   if audio_mode == 1 then
-    for key, _ in pairs(active_drones) do
-      if not cells_to_drone[key] then
-        local r, c = key:match("(%d+),(%d+)")
-        engine.drone_off(tonumber(r), tonumber(c))
+    for key, voice in pairs(active_drones) do
+      if not active_voice_keys[key] then
+        engine.drone_off(voice.engine_row, voice.engine_col)
         active_drones[key] = nil
       end
     end
@@ -474,12 +597,24 @@ function init()
   end)
 
   params:add_option("scale", "scale", {"Minor Pent", "Major Pent", "Harm Minor", "Whole Tone"}, 1)
-  params:set_action("scale", function(v) current_scale_idx = v end)
+  params:set_action("scale", function(v)
+    current_scale_idx = v
+    all_drones_off()
+  end)
 
   params:add_number("drone_radius", "drone radius", 10, 150, 50)
   params:add_number("trigger_threshold", "trigger density", 1, 10, 3)
   params:add_number("max_drones", "max drones", 1, 48, max_drones)
   params:set_action("max_drones", function(v) max_drones = v end)
+
+  params:add_option("voice_dedupe", "voice dedupe", {"off", "by pitch"}, voice_dedupe)
+  params:set_action("voice_dedupe", function(v)
+    voice_dedupe = v
+    all_drones_off()
+  end)
+
+  params:add_option("voice_gain_comp", "voice gain", {"off", "sqrt"}, voice_gain_comp)
+  params:set_action("voice_gain_comp", function(v) voice_gain_comp = v end)
 
   params:add_control("output_level", "output level", controlspec.new(0, 1, "lin", 0.01, DEFAULT_OUTPUT_LEVEL))
   params:set_action("output_level", function(v) engine.output_level(v) end)
@@ -529,10 +664,40 @@ function init()
   params:add_control("obstacle_look_ahead", "look ahead", controlspec.new(2, 20, "lin", 0.5, 7.5))
   params:set_action("obstacle_look_ahead", function(v) config.obstacle_look_ahead = v end)
 
+  params:add_separator("sound test")
+  params:add_option("sound_test_scene", "test scene", {"off", "fixed", "sweep", "dense"}, sound_test_scene)
+  params:set_action("sound_test_scene", function(v)
+    if sound_test_scene ~= v then
+      all_drones_off()
+    end
+    sound_test_scene = v
+  end)
+
+  params:add_number("sound_test_row", "test row", 1, GRID_ROWS, sound_test_row)
+  params:set_action("sound_test_row", function(v)
+    if sound_test_active() and sound_test_row ~= v then all_drones_off() end
+    sound_test_row = v
+  end)
+
+  params:add_number("sound_test_col", "test col", 1, GRID_COLS, sound_test_col)
+  params:set_action("sound_test_col", function(v)
+    if sound_test_active() and sound_test_col ~= v then all_drones_off() end
+    sound_test_col = v
+  end)
+
+  params:add_control("sound_test_distance", "test distance", controlspec.new(0, 120, "lin", 1, sound_test_distance))
+  params:set_action("sound_test_distance", function(v) sound_test_distance = v end)
+
+  params:add_control("sound_test_spread", "test spread", controlspec.new(0, 30, "lin", 1, sound_test_spread))
+  params:set_action("sound_test_spread", function(v) sound_test_spread = v end)
+
+  params:add_control("sound_test_speed", "test speed", controlspec.new(0, 2, "lin", 0.01, sound_test_speed))
+  params:set_action("sound_test_speed", function(v) sound_test_speed = v end)
+
   params:add_separator("16n")
-  params:add_option("16n_enabled", "16n midi", {"off", "on"}, midi_16n_enabled)
-  params:set_action("16n_enabled", function(v)
-    midi_16n_enabled = v
+  params:add_option("16n_mode", "16n midi", {"off", "auto", "manual"}, midi_16n_mode)
+  params:set_action("16n_mode", function(v)
+    midi_16n_mode = v
     connect_16n_midi()
   end)
 
@@ -570,7 +735,11 @@ function init()
     config.separation_weight = base_separation_weight + thunder_intensity * 8
     config.cohesion_weight = base_cohesion_weight * (1 - thunder_intensity * 0.8)
 
-    flock:update(1 / 15, active_cell_positions())
+    if sound_test_active() then
+      apply_sound_test_scene(1 / 15)
+    else
+      flock:update(1 / 15, active_cell_positions())
+    end
     update_audio()
   end
   sim_metro:start()
@@ -597,8 +766,9 @@ function redraw()
   screen.level(3)
   for r = 1, GRID_ROWS do
     for c = 1, GRID_COLS do
-      if grid_cells[r][c] then
+      if grid_cells[r][c] or (sound_test_active() and r == sound_test_row and c == sound_test_col) then
         local sx, sy = project(cell_position(r, c))
+        screen.level(grid_cells[r][c] and 3 or 8)
         screen.rect(sx - 2, sy - 2, 4, 4)
         screen.fill()
       end
@@ -632,6 +802,10 @@ function redraw()
   screen.text("boids: " .. #flock.boids)
   screen.move(2, 62)
   screen.text(audio_mode == 1 and "drone" or "trigger")
+  if sound_test_active() then
+    screen.move(2, 18)
+    screen.text("test: " .. sound_test_names[sound_test_scene])
+  end
 
   draw_param_overlay()
 

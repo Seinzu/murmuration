@@ -38,15 +38,25 @@ The Lua script uses project-relative includes.
 - `arc key`: reset the encoder's mapped parameter to its default
 - `16n`: optional USB MIDI control over CC32-47
 
-Active grid cells are both audio zones and obstacle points for the flock.
+Active grid cells are both audio zones and obstacle points for the flock. In drone mode, selected nearby boids excite voices using stable per-boid scale pitches; distance still controls level and modulation depth.
 
 ## Parameters
 
-The script exposes params for flock weights, scale, audio mode, drone radius, trigger density, maximum drone count, output level, synth levels, envelope, FX, and obstacle avoidance. `max drones` defaults to 24 to keep the engine load modest on norns. `output level` defaults to 0.6 to leave headroom on hardware.
+The script exposes params for flock weights, scale, audio mode, drone radius, trigger density, maximum drone count, output level, synth levels, envelope, FX, and obstacle avoidance. `max drones` defaults to 12 to keep the boid-pitched voice load modest on norns. `voice dedupe` defaults to `by pitch`, and `voice gain` defaults to `sqrt` compensation so larger voice counts do not jump as sharply in level. `output level` defaults to 0.6 to leave headroom on hardware.
+
+## Sound Test
+
+The `sound test` params are opt-in and default to `off`. They replace the live flock with deterministic boid positions and add a temporary audition cell at `test row` / `test col` without changing the saved grid state.
+
+- `fixed`: places a compact flock at `test distance` from the audition cell, useful for checking drone presence and distance response.
+- `sweep`: moves the flock around the audition cell at `test distance`, useful for hearing transitions.
+- `dense`: packs the flock onto the audition cell, useful for trigger-mode density testing.
+
+Set `test scene` back to `off` to return to normal flocking.
 
 ## 16n
 
-16n support is optional and uses USB MIDI. Enable `16n midi` in params, set `16n port` to the MIDI device number shown by norns, and leave `16n channel` at 1 for the default 16n configuration.
+16n support is optional and uses USB MIDI. `16n midi` defaults to `auto`, which listens across norns MIDI ports and should work as soon as the 16n is connected. If you need to avoid another controller or troubleshoot a setup, set `16n midi` to `manual`, set `16n port` to the MIDI device number shown by norns, and leave `16n channel` at 1 for the default 16n configuration.
 
 Default 16n firmware sends faders 1-16 as MIDI CC32-47 on channel 1. Murmuration maps them as:
 
@@ -72,7 +82,8 @@ The most recently changed 16n or arc parameter is shown in the top-right of the 
 5. Press `K3` to switch to trigger mode; any held drones should release.
 6. Press `K2` and confirm the thunder sound plays and the flock scatters.
 7. Turn each arc encoder and confirm sound changes and the arc ring redraws.
-8. If using 16n, enable `16n midi`, set `16n port`, and confirm faders update params.
+8. Set `test scene` to `fixed`, `sweep`, and `dense`, then back to `off`; normal flocking should resume.
+9. If using 16n, connect it over USB and confirm faders update params. If not, set `16n midi` to `manual` and choose the `16n port`.
 
 ## Notes
 

@@ -94,10 +94,10 @@ export class SpatialAnalyzer {
       }
 
       if (candidates.length === 0) {
-        data.boids.push({ closestCell: null, distanceToCell: Infinity });
+        data.boids.push({ closestCell: null, distanceToCell: Infinity, pitchIndex: boid.pitchIndex });
       } else {
         const chosen = candidates[Math.floor(Math.random() * candidates.length)];
-        data.boids.push({ closestCell: chosen, distanceToCell: Math.sqrt(minDistSq) });
+        data.boids.push({ closestCell: chosen, distanceToCell: Math.sqrt(minDistSq), pitchIndex: boid.pitchIndex });
       }
     }
 

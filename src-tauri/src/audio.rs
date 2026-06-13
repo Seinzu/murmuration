@@ -165,7 +165,7 @@ impl AudioEngine {
             OscType::Int(id), OscType::Int(0), OscType::Int(SRC_GROUP),
             OscType::String("out".into()), OscType::Int(FX_BUS),
             OscType::String("freq".into()), OscType::Float(freq),
-            OscType::String("amp".into()), OscType::Float((presence * 0.2).max(0.01)),
+            OscType::String("amp".into()), OscType::Float((presence * 0.2).max(0.0)),
             OscType::String("modIndex".into()), OscType::Float(mod_index),
             OscType::String("gate".into()), OscType::Int(1),
             OscType::String("thunderBus".into()), OscType::Int(THUNDER_BUS),
